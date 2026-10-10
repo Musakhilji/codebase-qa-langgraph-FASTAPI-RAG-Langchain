@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Codebase Q&A</title>
+
+  <!-- Markdown ko sundar dikhane ke liye (AI ka jawab markdown mein aata hai) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+
+  <style>
+    /* ---------- Basic look ---------- */
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f2f4f8;
+      color: #222;
+    }
+
+    .hidden { display: none; }
+
+    /* ---------- Login / Register box ---------- */
+    #auth-box {
+      max-width: 340px;
+      margin: 80px auto;
+      background: white;
+      padding: 24px;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+
+    input {
+      width: 100%;
+      padding: 10px;
+      margin: 6px 0;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 15px;
+    }
+
+    button {
+      padding: 10px 16px;
+      border: none;
+      border-radius: 6px;
+      background: #4f46e5;
+      color: white;
+      font-size: 15px;
+      cursor: pointer;
+    }
+
+    button:hover { background: #4338ca; }
+    button.grey { background: #777; }
+
+    #auth-error { color: red; font-size: 14px; min-height: 18px; }
+
+    /* ---------- Chat page ---------- */
+    #chat-box {
+      max-width: 800px;
+      margin: 20px auto;
+      padding: 0 12px;
+    }
+
+    .top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .repo-row { display: flex; gap: 8px; }
+
+    #messages {
+      background: white;
+      border-radius: 10px;
+      padding: 14px;
+      margin: 12px 0;
+      height: 55vh;
+      overflow-y: auto;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+    }
+
+    .msg {
+      padding: 10px 14px;
+      margin: 8px 0;
+      border-radius: 10px;
+      max-width: 90%;
+      line-height: 1.5;
+    }
+
+    .msg.human { background: #e0e7ff; margin-left: auto; white-space: pre-wrap; }
+    .msg.ai    { background: #f3f4f6; }
+
+    .msg pre {
+      background: #1e1e1e;
+      color: #eee;
+      padding: 10px;
+      border-radius: 6px;
+      overflow-x: auto;
+    }
+
+    .ask-row { display: flex; gap: 8px; }
+  </style>
+</head>
+
+<body>
+
+  <!-- ================= LOGIN / REGISTER ================= -->
+  <div id="auth-box">
+    <h2>Login / Signup</h2>
+
+    <input id="username" placeholder="Username">
+    <input id="password" type="password" placeholder="Password">
+
+    <p id="auth-error"></p>
+
+    <button onclick="login()">Login</button>
+    <button class="grey" onclick="register()">Signup</button>
+  </div>
+
+
+  <!-- ================= CHAT PAGE ================= -->
+  <div id="chat-box" class="hidden">
+
+    <div class="top-bar">
+      <h2>Codebase Q&A</h2>
+      <button class="grey" onclick="logout()">Logout</button>
+    </div>
+
+    <!-- GitHub link daalo -->
+    <div class="repo-row">
+      <input id="git-url" placeholder="GitHub repo link (https://github.com/...)">
+      <button onclick="loadHistory()">Load History</button>
+    </div>
+
+    <!-- Saari chat yahan dikhegi -->
+    <div id="messages"></div>
+
+    <!-- Sawal likho -->
+    <div class="ask-row">
+      <input id="question" placeholder="Apna sawal likho..." onkeydown="if (event.key === 'Enter') ask()">
+      <button id="ask-btn" onclick="ask()">Ask</button>
+    </div>
+
+  </div>
+
+
+  <script>
+    // =====================================================
+    // 1) Settings
+    // =====================================================
+
+    // Backend ka address (agar port alag hai to yahan badlo)
+    const API = "http://127.0.0.1:8000";
+
+
+    // =====================================================
+    // 2) Page badalne ke chhote functions
+    // =====================================================
+
+    function showLogin() {
+      document.getElementById("auth-box").classList.remove("hidden");
+      document.getElementById("chat-box").classList.add("hidden");
+    }
+
+    function showChat() {
+      document.getElementById("auth-box").classList.add("hidden");
+      document.getElementById("chat-box").classList.remove("hidden");
+    }
+
+
+    // =====================================================
+    // 3) Register
+    // =====================================================
+
+    async function register() {
+      const username = document.getElementById("username").value;
+      const password = document.getElementById("password").value;
+
+      const res = await fetch(API + "/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+
+      if (res.ok) {
+        // signup ke baad seedha login kar do
+        await login();
+      } else {
+        const data = await res.json();
+        document.getElementById("auth-error").innerText = data.detail || "Signup failed";
+      }
+    }
+
+
+    // =====================================================
+    // 4) Login
+    // =====================================================
+
+    async function login() {
+      const username = document.getElementById("username").value;
+      const password = document.getElementById("password").value;
+
+      // /login JSON nahi, form data leta hai
+      const res = await fetch(API + "/login", {
+        method: "POST",
+        body: new URLSearchParams({ username, password }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        // token browser mein save karo
+        localStorage.setItem("token", data.access_token);
+        document.getElementById("auth-error").innerText = "";
+        showChat();
+      } else {
+        document.getElementById("auth-error").innerText = data.detail || "Login failed";
+      }
+    }
+
+
+    // =====================================================
+    // 5) Logout
+    // =====================================================
+
+    function logout() {
+      localStorage.removeItem("token");
+      document.getElementById("messages").innerHTML = "";
+      showLogin();
+    }
+
+
+    // =====================================================
+    // 6) Protected request bhejne ka helper (token ke saath)
+    // =====================================================
+
+    async function authFetch(path, options = {}) {
+      const token = localStorage.getItem("token");
+
+      options.headers = options.headers || {};
+      options.headers["Authorization"] = "Bearer " + token;
+
+      const res = await fetch(API + path, options);
+
+      // token expire ho gaya (30 min) to dobara login
+      if (res.status === 401) {
+        alert("Session khatam ho gaya, dobara login karo.");
+        logout();
+        throw new Error("Unauthorized");
+      }
+
+      return res;
+    }
+
+
+    // =====================================================
+    // 7) Chat mein message dikhana
+    // =====================================================
+
+    function addMessage(role, text) {
+      const box = document.getElementById("messages");
+      const div = document.createElement("div");
+      div.className = "msg " + role;
+
+      if (role === "ai") {
+        // markdown ko sundar HTML bana do (safe tareeqe se)
+        div.innerHTML = DOMPurify.sanitize(marked.parse(text));
+      } else {
+        div.innerText = text;
+      }
+
+      box.appendChild(div);
+      box.scrollTop = box.scrollHeight;   // neeche tak scroll
+      return div;
+    }
+
+
+    // =====================================================
+    // 8) Purani history lana
+    // =====================================================
+
+    async function loadHistory() {
+      const gitUrl = document.getElementById("git-url").value.trim();
+
+      if (!gitUrl) {
+        alert("Pehle GitHub link daalo");
+        return;
+      }
+
+      const res = await authFetch("/history?git_url=" + encodeURIComponent(gitUrl));
+      const chat = await res.json();
+
+      // pehle screen saaf karo, phir sab messages dikhao
+      document.getElementById("messages").innerHTML = "";
+
+      for (const m of chat) {
+        addMessage(m.role, m.content);
+      }
+    }
+
+
+    // =====================================================
+    // 9) Sawal poochna
+    // =====================================================
+
+    async function ask() {
+      const gitUrl = document.getElementById("git-url").value.trim();
+      const query = document.getElementById("question").value.trim();
+
+      if (!gitUrl || !query) {
+        alert("GitHub link aur sawal dono likho");
+        return;
+      }
+
+      // apna sawal turant screen par dikhao
+      addMessage("human", query);
+      document.getElementById("question").value = "";
+
+      // jawab aane tak wait wala message
+      const waiting = addMessage("ai", "Soch raha hai...");
+      document.getElementById("ask-btn").disabled = true;
+
+      try {
+        const res = await authFetch("/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: query, git_url: gitUrl }),
+        });
+
+        const data = await res.json();
+
+        // wait wala message hata ke asli jawab dikhao
+        waiting.remove();
+        addMessage("ai", data.ai || "Kuch masla hua, dobara try karo.");
+
+      } catch (err) {
+        waiting.remove();
+        addMessage("ai", "Error: backend se jawab nahi aaya.");
+      }
+
+      document.getElementById("ask-btn").disabled = false;
+    }
+
+
+    // =====================================================
+    // 10) Page khulte hi: token pehle se hai to seedha chat dikhao
+    // =====================================================
+
+    if (localStorage.getItem("token")) {
+      showChat();
+    } else {
+      showLogin();
+    }
+  </script>
+
+</body>
+</html>
